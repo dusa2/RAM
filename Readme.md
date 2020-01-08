@@ -1,4 +1,4 @@
-Forked from SunnerLi/RAM and customized to make it work with custom RGB dataset, reads in data using the data generator added.
+Forked from SunnerLi/RAM and customized to make it work with custom RGB dataset (binary to RGB), reads in data using the data generator added.
 
 # RAM
 [![Packagist](https://img.shields.io/badge/Tensorflow-1.3.0-yellow.svg)]()
