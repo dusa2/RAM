@@ -7,9 +7,9 @@ class GlimpsNetwork(object):
         self.location_ph = location_ph
 
     def getGlimps(self, loc_tensor):
-        self.glimps_imgs = tf.reshape(self.location_ph, [tf.shape(self.location_ph)[0], 28, 28, 1], name='reshape_layer_1')
+        self.glimps_imgs = tf.reshape(self.location_ph, [tf.shape(self.location_ph)[0], 64, 64, 3], name='reshape_layer_1')
         self.glimps_imgs = tf.image.extract_glimpse(self.glimps_imgs, [win_size, win_size], loc_tensor)
-        self.glimps_imgs = tf.reshape(self.glimps_imgs, [tf.shape(loc_tensor)[0], win_size * win_size * 1])
+        self.glimps_imgs = tf.reshape(self.glimps_imgs, [tf.shape(loc_tensor)[0], win_size * win_size * 3])
         return self.glimps_imgs
 
     def __call__(self, loc_tensor):
@@ -48,6 +48,6 @@ class LocationNetwork(object):
             return self.location, self.mean
 
 if __name__ == '__main__':
-    location_ph = tf.placeholder(tf.float32, [None, 28, 28, 1])
+    location_ph = tf.placeholder(tf.float32, [None, 64, 64, 3])
     net = LocationNetwork()
     net(tf.random_uniform((1, 2), minval=-1, maxval=1))
