@@ -96,7 +96,7 @@ class ImageDataGenerator(object):
                 items = line.split(' ')
                 print(items)
                 video = items[0].split('_')[0]
-                impath =  '/home/caffe/data/Cholec/images/'+video+'/'+items[0] +'.jpg'
+                impath =  '/home/data/images/'+video+'/'+items[0] +'.jpg'
                 self.img_paths.append(impath)
                 self.labels.append(int(items[1]))
 
