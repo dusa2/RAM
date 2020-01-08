@@ -1,8 +1,15 @@
+from __future__ import print_function
 from network import GlimpsNetwork, LocationNetwork
-from tensorflow.examples.tutorials import mnist
+from tensorflow import keras
+#from tensorflow.python.keras.datasets import cifar
 from tensorflow.contrib import distributions
 from seq2seq import rnn_decoder
 from config import *
+import sys, os, time
+from datagenerator import ImageDataGenerator
+from datetime import datetime
+#from tensorflow.contrib.data import Iterator
+
 
 import tensorlayer as tl
 import tensorflow as tf
@@ -15,6 +22,20 @@ sample_coor_list = []
 # Network object
 location_network = None
 glimps_network = None
+
+# Path to the textfiles for the trainings and validation set
+train_file = '/home/dusa/tools/train.txt'
+val_file = '/home/dusa/tools/val.txt'
+
+# params
+dropout_rate = 0.5
+num_epochs = 200
+batch_size = 64
+
+# Path for tf.summary.FileWriter and to store model checkpoints
+filewriter_path = "/tmp/tensorboard"
+checkpoint_path = "/tmp/checkpoints"
+
 
 def getNextRetina(output, i):
     global origin_coor_list
@@ -37,7 +58,7 @@ def loglikelihood(mean_arr, sampled_arr, sigma):
 
 if __name__ == '__main__':
     # Create placeholder
-    images_ph = tf.placeholder(tf.float32, [None, 28 * 28 * 1])
+    images_ph = tf.placeholder(tf.float32, [None, 64 , 64 , 3])
     labels_ph = tf.placeholder(tf.int64, [None])
 
     # Create network
@@ -46,7 +67,9 @@ if __name__ == '__main__':
     
     # Construct Glimps network (part in core network)
     init_location = tf.random_uniform((tf.shape(images_ph)[0], 2), minval=-1.0, maxval=1.0)
+    print(init_location)
     init_glimps_tensor = glimps_network(init_location)
+    #print(init_glimps_tensor)
 
     # Construct core network
     lstm_cell = tf.nn.rnn_cell.LSTMCell(128, state_is_tuple=True)
@@ -59,6 +82,8 @@ if __name__ == '__main__':
     action_net = tl.layers.InputLayer(outputs[-1])
     action_net = tl.layers.DenseLayer(action_net, n_units = num_classes, name='classification_net_fc')
     logits = action_net.outputs
+    #print(logits)
+    #print(labels_ph)
     softmax = tf.nn.softmax(logits)
 
     # Cross-entropy
@@ -80,21 +105,145 @@ if __name__ == '__main__':
     grads = tf.gradients(loss, var_list)
 
     # Optimizer
-    opt = tf.train.AdamOptimizer(0.0001)
+    opt = tf.train.AdamOptimizer(0.000001)
     global_step = tf.get_variable('global_step', initializer=tf.constant(0), trainable=False)
     train_op = opt.apply_gradients(zip(grads, var_list), global_step=global_step)
+    #train_op =opt.minimize(loss, global_step=global_step)
+
+    #print("opt.get_name(): ",opt.get_name(),"opt._lr: ",opt._lr,"opt._lr_t: ",opt._lr_t)
+
+    # Create parent path if it doesn't exist
+    if not os.path.isdir(checkpoint_path):
+        os.mkdir(checkpoint_path)
+
+    # Place data loading and preprocessing on the cpu
+    with tf.device('/cpu:0'):
+        tr_data = ImageDataGenerator(train_file,
+                                     mode='training',
+                                     batch_size=batch_size,
+                                     num_classes=num_classes,
+                                     shuffle=True)
+        #print(tr_data)
+        val_data = ImageDataGenerator(val_file,
+                                      mode='inference',
+                                      batch_size=batch_size,
+                                      num_classes=num_classes,
+                                      shuffle=False)
+
+        # create an reinitializable iterator given the dataset structure
+        iterator = tf.data.Iterator.from_structure(tr_data.data.output_types,
+                                           tr_data.data.output_shapes)
+        next_batch = iterator.get_next()
+
+    # Ops for initializing the two different iterators
+    training_init_op = iterator.make_initializer(tr_data.data)
+    validation_init_op = iterator.make_initializer(val_data.data)
+
+    # TF placeholder for graph input and output
+    #x = tf.placeholder(tf.float32, [batch_size, 227, 227, 3])
+    #y = tf.placeholder(tf.float32, [batch_size, num_classes])
+    keep_prob = tf.placeholder(tf.float32)
+
+    with tf.name_scope("accuracy"):
+        accuracy = tf.reduce_mean(tf.cast(tf.equal(predict_label, labels_ph), tf.float32))
+
+
+    print(predict_label)
+    print(labels_ph)
+
+    # Add the accuracy to the summary
+    tf.summary.scalar('accuracy', accuracy)
+
+    # Merge all summaries together
+    merged_summary = tf.summary.merge_all()
+
+    # Initialize the FileWriter 
+    writer = tf.summary.FileWriter(filewriter_path)
+
+    # Initialize an saver for store model checkpoints
+    saver = tf.train.Saver()
+
+    # Get the number of training/validation steps per epoch
+    train_batches_per_epoch = int(np.floor(tr_data.data_size/batch_size))
+    val_batches_per_epoch = int(np.floor(val_data.data_size / batch_size))
 
     # Train
     with tf.Session() as sess:
-        mnist = mnist.input_data.read_data_sets('MNIST_data', one_hot=False)
+        #(x_train, y_train), (x_test, y_test) = keras.datasets.cifar10.load_data()
+        #print(x_train.shape)
         sess.run(tf.global_variables_initializer())
-        for i in range(2):
-            images, labels = mnist.train.next_batch(batch_size)
-            images = np.tile(images, [M, 1])
-            labels = np.tile(labels, [M])
-            _loss_value, _reward_value, _ = sess.run([loss, reward, train_op], feed_dict={
-                images_ph: images,
-                labels_ph: labels
-            })
-            if i % 100 == 0:
-                print('iter: ', i, '\tloss: ', _loss_value, '\treward: ', _reward_value)
+
+        print("{} Start training...".format(datetime.now()))
+        print("{} Open Tensorboard at --logdir {}".format(datetime.now(),
+                                                      filewriter_path))
+
+        # Loop over number of epochs
+        for epoch in range(num_epochs):
+
+            print("{} Epoch number: {}".format(datetime.now(), epoch+1))
+
+            # Initialize iterator with the training dataset
+            sess.run(training_init_op)
+            print(sess)
+
+            for step in range(train_batches_per_epoch):
+
+                # get next batch of data
+                img_batch, label_batch = sess.run(next_batch)
+                #print(img_batch.shape)
+                #print(label_batch.shape)
+
+                images = np.tile(img_batch,[M,1,1,1])
+                labels = np.tile(label_batch, [M])
+            
+   
+                print(images.shape)
+                print(labels)
+                # And run the training op
+                _loss_value, _reward_value, _ = sess.run([loss, reward, train_op], feed_dict={images_ph: images,
+                                              labels_ph: labels,
+                                              keep_prob: dropout_rate})
+                if step % 10 == 0:
+                    print('iter: ', step, '\tloss: ', _loss_value, '\treward: ', _reward_value)
+
+
+
+        # Validate the model on the entire validation set
+        print("{} Start validation".format(datetime.now()))
+        sess.run(validation_init_op)
+        test_acc = 0.
+        test_count = 0
+        for _ in range(val_batches_per_epoch):
+
+            img_batch, label_batch = sess.run(next_batch)
+            
+            images = np.tile(img_batch, [M,1,1,3])
+            labels = np.tile(label_batch, [M])
+            
+            #print(images.shape)
+            #print(labels.shape)
+            acc = sess.run([accuracy], feed_dict={images_ph: images,
+                                                labels_ph: labels,
+                                                keep_prob: 1.})
+            
+            print(predict_label)
+            print(labels_ph)
+            print(accuracy)
+            print(acc)
+            test_acc += float(acc[0])
+            test_count += 1
+        test_acc /= test_count
+        print("{} Validation Accuracy = {:.4f}".format(datetime.now(),
+                                                       test_acc))
+        print("{} Saving checkpoint of model...".format(datetime.now()))
+
+        # save checkpoint of the model
+        checkpoint_name = os.path.join(checkpoint_path,
+                                       'model_epoch'+str(epoch+1)+'.ckpt')
+        save_path = saver.save(sess, checkpoint_name)
+
+        print("{} Model checkpoint saved at {}".format(datetime.now(),
+                                                       checkpoint_name))
+
+        
+     
