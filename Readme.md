@@ -1,3 +1,5 @@
+Forked from SunnerLi/RAM and customized to make it work with my cistom RGB dataset, reads in data using the data generator added.
+
 # RAM
 [![Packagist](https://img.shields.io/badge/Tensorflow-1.3.0-yellow.svg)]()
 [![Packagist](https://img.shields.io/badge/Tensorlayer-1.6.1-blue.svg)]()    
